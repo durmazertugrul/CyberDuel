@@ -185,7 +185,6 @@ RiskScore = 0.5 × RuleResult + 0.5 × MLProbability
 
 Some parts of this project were developed with the help of **Claude (Anthropic)**. Specifically:
 
-- Initial class framework for model and system classes
 - LINQ query templates in the data generator
 - Project documentation and report writing
 - Academic reference search and analysis of relevant studies
