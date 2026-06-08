@@ -15,13 +15,13 @@ namespace CyberDuel.Detection
 
         public MLDetector()
         {
-            // Seed sabitlendi, her çalışmada aynı sonuç üretsin
+            // Tutarsızlığı önlemek için Seed sabitlendi
             mlContext = new MLContext(seed: 0);
         }
 
         public void Train(List<EventLog> data)
         {
-            // EventLog listesini ML formatına çevir
+            // EventLog listesi ML formatına çevirir
             List<MLEventData> mlData = new List<MLEventData>();
 
             foreach (EventLog log in data)
@@ -38,10 +38,10 @@ namespace CyberDuel.Detection
 
             IDataView dataView = mlContext.Data.LoadFromEnumerable(mlData);
 
-            // %80 eğitim, %20 test olarak böldüm
+            // %80 eğitim, %20 test 
             var split = mlContext.Data.TrainTestSplit(dataView, testFraction: 0.2);
 
-            // Feature sütunlarını birleştir ve FastTree ile eğit
+            // Feature sütunlarını birleştirme ve FastTree ile eğitme
             var pipeline = mlContext.Transforms
                 .Concatenate("Features",
                     "AttemptCount", "RequestRate", "PortCount",
@@ -53,7 +53,7 @@ namespace CyberDuel.Detection
             engine = mlContext.Model.CreatePredictionEngine<MLEventData, MLPrediction>(model);
             Trained = true;
 
-            // Test seti üzerinde performansı ölç ve ekrana yaz
+            // Test seti  performansı ölçümü ve ekrana yazdırma kısmı
             var predictions = model.Transform(split.TestSet);
             var metrics = mlContext.BinaryClassification.Evaluate(
                 predictions, labelColumnName: "Label");
@@ -65,7 +65,7 @@ namespace CyberDuel.Detection
 
         public bool Predict(EventLog log, out float probability)
         {
-            // Gelen logu ML formatına çevir ve tahmin yap
+            // Gelen logu ML formatına çevirilir tahmin yapar
             MLEventData input = new MLEventData();
             input.AttemptCount = log.AttemptCount;
             input.RequestRate = log.RequestRate;

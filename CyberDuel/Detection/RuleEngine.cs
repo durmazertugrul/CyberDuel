@@ -2,7 +2,7 @@
 
 namespace CyberDuel.Detection
 {
-    // Kural tabanlı tespit: önceden tanımlı eşik değerlerine göre karar verir
+    
     public class RuleEngine
     {
         // Eşik sabitleri

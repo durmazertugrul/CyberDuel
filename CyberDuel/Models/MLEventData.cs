@@ -13,7 +13,7 @@ namespace CyberDuel.Models
         [LoadColumn(5)] public bool Label { get; set; }
     }
 
-    // ML.NET tahmin sonucunu tutan sınıf
+    // ML.NET tahmin sonucunu tutuluyor
     public class MLPrediction
     {
         [ColumnName("PredictedLabel")]

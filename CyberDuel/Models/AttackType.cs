@@ -1,6 +1,6 @@
 ﻿namespace CyberDuel.Models
 {
-    // Saldırı türlerini tutan enum
+    // Saldırı türleri
     public enum AttackType
     {
         Normal = 0,

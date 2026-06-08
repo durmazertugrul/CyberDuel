@@ -1,6 +1,6 @@
 ﻿namespace CyberDuel.Models
 {
-    // Risk seviyesi için 4 basamak tanımladım
+    // Risk seviyesi basamakları
     public enum ThreatLevel
     {
         Low = 0,

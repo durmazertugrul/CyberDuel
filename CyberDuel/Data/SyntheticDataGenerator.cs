@@ -2,8 +2,7 @@
 
 namespace CyberDuel.Data
 {
-    // ML modelini eğitmek için sahte log verisi üretiyoruz
-    // Gerçek network trafiği olmadığı için simüle edilmiş veri kullanıyoruz
+    // ML modelini eğitmek için sahte log verisi üretimi
     public class SyntheticDataGenerator
     {
         private Random rng = new Random();
@@ -12,7 +11,7 @@ namespace CyberDuel.Data
         {
             List<EventLog> result = new List<EventLog>();
 
-            // Yarısı normal trafik, yarısı saldırı olacak şekilde ürettim
+            // Yarısı normal trafik, yarısı saldırı
             int half = count / 2;
 
             for (int i = 0; i < half; i++)
@@ -28,7 +27,7 @@ namespace CyberDuel.Data
             for (int i = 0; i < perType; i++) result.Add(MakeSqlInjection());
             for (int i = 0; i < perType; i++) result.Add(MakeFileAccess());
 
-            // Listeyi karıştır (gerçek veri davranışını taklit eder)
+            // Listeyi karıştır 
             result = result.OrderBy(x => rng.Next()).ToList();
 
             return result;
@@ -50,7 +49,7 @@ namespace CyberDuel.Data
             File.WriteAllLines(path, lines);
         }
 
-        // Normal trafik örneği üretir
+        // Normal trafik örneği 
         private EventLog MakeNormal()
         {
             return new EventLog

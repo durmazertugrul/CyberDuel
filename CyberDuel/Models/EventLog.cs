@@ -1,6 +1,6 @@
 ﻿namespace CyberDuel.Models
 {
-    // Her saldırı olayını temsil eden sınıf
+    
     public class EventLog
     {
         public DateTime Timestamp { get; set; }
@@ -8,7 +8,7 @@
         public string TargetSystem { get; set; }
         public AttackType AttackType { get; set; }
 
-        // Saldırı türüne göre doldurulan özellik alanları
+        // Saldırı türüne göre özellik alanları
         public float AttemptCount { get; set; }
         public float RequestRate { get; set; }
         public float PortCount { get; set; }

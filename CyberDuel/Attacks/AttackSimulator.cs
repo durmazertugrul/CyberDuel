@@ -2,8 +2,6 @@
 
 namespace CyberDuel.Attacks
 {
-    // Tüm saldırı türlerini simüle eden sınıf
-    // Her saldırı tipi için ayrı metot yazdım
     public class AttackSimulator
     {
         private Random rng = new Random();

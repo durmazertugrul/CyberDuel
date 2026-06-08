@@ -5,7 +5,7 @@ namespace CyberDuel.Scoring
     // Her olaya bir risk skoru atar ve tehdit seviyesini belirler
     public class RiskScorer
     {
-        // Her iki katmana eşit ağırlık verdim
+        // Her iki katmana eşit ağırlık
         private double ruleWeight = 0.5;
         private double mlWeight = 0.5;
 
@@ -21,7 +21,7 @@ namespace CyberDuel.Scoring
 
         public ThreatLevel GetLevel(double score)
         {
-            // Skora göre tehdit seviyesi belirle
+            // Skora göre tehdit seviyesi belirleme
             if (score < 0.25)
                 return ThreatLevel.Low;
             else if (score < 0.50)
