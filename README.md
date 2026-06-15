@@ -11,19 +11,23 @@ A console application developed in C# that simulates realistic cyber attack scen
 
 ## Overview
 
-CyberDuel places the user in the role of an attacker targeting one of three simulated server environments. Each attack type runs a realistic step-by-step simulation — including wordlist-based brute force, live port scanning with service detection, cumulative DDoS load tracking, real SQL payload injection against WAF-protected targets, and role-based file access attempts with privilege escalation. Every action generates a structured event log that is analyzed in real time by two detection layers. At the end of each mission, the system reports standard IDS evaluation metrics.
+CyberDuel places the user in the role of an attacker targeting one of three simulated server environments across three difficulty levels. Attacks are realistic and step-by-step: brute force iterates a real wordlist and triggers account lockout, port scan probes a defined port table and stores discovered ports for use in subsequent attacks, DDoS tracks cumulative load against server capacity until the target goes offline, SQL injection tests real payloads against WAF-protected targets, and file access navigates a role-based permission system with privilege escalation attempts. A session state persists across attacks — a compromised server stays offline, admin credentials elevate file access privileges, and discovered open ports improve injection success rates. Every event is analyzed by a hybrid two-layer detection system and contributes to a mission score.
 
 ---
 
 ## Features
 
-- **3 target systems:** Finance Server, Authentication Server, Public Web Gateway — each with unique port tables, file systems, user accounts, WAF configuration and server capacity
+- **3 difficulty levels:** Easy, Medium, Hard — affect WAF strength, lockout threshold, server capacity, and password availability
+- **3 target systems:** Finance Server, Authentication Server, Public Web Gateway — each with port tables, file systems, user accounts, WAF flag, and server capacity
 - **5 realistic attack types:** Port Scan, Brute Force, DDoS Flood, SQL Injection, Unauthorized File Access
-- **Scenario-based missions** with objectives for each target
-- **Synthetic log generation** — 600 labeled training samples with 9 features produced at startup
-- **Rule-based detection engine** — multi-condition rules per attack type
-- **ML-based detection** — FastTree binary classifier trained via ML.NET (9 features)
-- **Risk scoring system** — combined score mapped to Low / Moderate / High / Critical
+- **Session state & attack chaining** — attack results persist and influence subsequent attacks
+- **IDS real-time intervention** — throttling during brute force, rate limiting during DDoS, firewall adaptation during port scan
+- **Synthetic log generation** — 600 labeled records with 9 features including borderline and evasive samples for ML independence
+- **Rule-based detection** — multi-condition rules per attack type
+- **ML-based detection** — FastTree binary classifier (ML.NET) trained on 9 features
+- **Risk scoring** — combined score mapped to Low / Moderate / High / Critical
+- **Mission scoring** — points for successful attacks with stealth and objective bonuses
+- **JSON session log export** — full event log saved after each mission
 - **Performance metrics** — Precision, Recall, F1-Score, Confusion Matrix
 
 ---
@@ -36,23 +40,26 @@ CyberDuel/
 │   ├── AttackType.cs              # Enum: attack categories
 │   ├── ThreatLevel.cs             # Enum: risk levels
 │   ├── EventLog.cs                # Core event record (9 ML features)
-│   └── MLEventData.cs             # ML.NET input/output types
+│   ├── MLEventData.cs             # ML.NET input/output types
+│   ├── SessionState.cs            # Persistent state across attacks
+│   └── DifficultySettings.cs      # Easy / Medium / Hard configuration
 ├── Systems/
 │   ├── FinanceServer.cs           # Target 1: port table, file system, WAF, accounts
 │   ├── AuthServer.cs              # Target 2: port table, file system, accounts
 │   └── WebGateway.cs              # Target 3: port table, file system, capacity
 ├── Attacks/
-│   └── AttackSimulator.cs         # Realistic step-by-step attack simulations
+│   └── AttackSimulator.cs         # Realistic step-by-step simulations with chaining
 ├── Data/
-│   └── SyntheticDataGenerator.cs  # Training data generator (9 features)
+│   └── SyntheticDataGenerator.cs  # 600 records: normal, borderline, evasive, attack
 ├── Detection/
 │   ├── RuleEngine.cs              # Multi-condition rule-based detection
 │   └── MLDetector.cs              # ML.NET FastTree classifier (9 features)
 ├── Scoring/
-│   └── RiskScorer.cs              # Risk score + threat level
+│   ├── RiskScorer.cs              # Risk score + threat level
+│   └── MissionScorer.cs           # Point-based mission scoring
 ├── Evaluation/
 │   └── MetricsReporter.cs         # Precision, Recall, F1, Confusion Matrix
-└── Program.cs                     # Main console loop
+└── Program.cs                     # Main loop: difficulty, state, scoring, log export
 ```
 
 ---
@@ -94,55 +101,64 @@ Or press **F5** in Visual Studio.
 ## How It Works
 
 ### Startup
-When the program starts, `SyntheticDataGenerator` produces 600 labeled event records (300 normal, 300 attack across 5 types) and saves them to `training_data.csv`. The `MLDetector` trains a FastTree binary classifier on 80% of this data using 9 feature columns and reports accuracy on the remaining 20%.
+Select a difficulty level. `SyntheticDataGenerator` produces 600 labeled records — including borderline normal traffic and evasive attack samples that fall below rule thresholds — and saves them to `training_data.csv`. The `MLDetector` trains a FastTree classifier on 80% of this data using 9 features.
 
-### Simulation Loop
+### Session Flow
 ```
-Select Target → Select Attack → Execute Realistic Simulation → Generate Log
-                                                                    ↓
-                                                      Rule Engine: multi-condition check
-                                                      ML Model: 9-feature prediction
-                                                                    ↓
-                                                      Risk Score = 0.5×Rule + 0.5×ML
-                                                      Threat Level assigned
-                                                      Metrics accumulated
-                                                                    ↓
-                                                   [0] End Mission → Print Summary
+Select Difficulty → Select Target → Mission Loop
+                                         ↓
+                              Select Attack → Execute Simulation
+                                         ↓
+                              Session State Updated (ports, credentials, server status)
+                                         ↓
+                              Rule Engine + ML Model → Risk Score → Threat Level
+                                         ↓
+                              Score Recorded → Metrics Accumulated
+                                         ↓
+                              [0] End Mission → Summary + JSON Export
 ```
 
-### Attack Simulations
+### Attack Chaining
 
-| Attack Type | What Happens |
-|-------------|-------------|
-| Port Scan | Probes each port in the target's port table, reports open/closed/filtered with service names |
-| Brute Force | Iterates a 25-entry wordlist against real user accounts, triggers account lockout after 10 fails |
-| DDoS Flood | Accumulates request rate each second against server capacity, tracks STABLE → DEGRADED → CRITICAL → DOWN |
-| SQL Injection | Tests 12 real payloads against target, WAF blocks ~65% when active, reports table accessed on success |
-| File Access | Attempts role-based access to each file in target's file system, optionally tries privilege escalation |
+| Previous Attack | Effect on Next Attack |
+|-----------------|----------------------|
+| Port Scan (port 1433/3306 found) | SQL Injection success rate +15% |
+| Brute Force (success) | File Access starts with admin role |
+| DDoS (server down) | All subsequent attacks blocked |
+
+### Difficulty Levels
+
+| Setting | Easy | Medium | Hard |
+|---------|------|--------|------|
+| WAF Block Rate | 30% | 65% | 85% |
+| Lockout Threshold | 15 fails | 10 fails | 5 fails |
+| Server Capacity | +30% | Base | -30% |
+| Password in Wordlist | Always | 60% chance | 40% chance |
+| IDS Intervention | Off | Active | Active |
 
 ### Detection Rules
 
 | Attack Type | Rule Conditions |
 |-------------|----------------|
-| Port Scan | Port count > 15 OR open ports found >= 3 |
-| Brute Force | Attempts > 5 OR account lockout triggered |
-| DDoS Flood | Request rate > 500 req/s OR rate > 350 AND duration > 3s |
+| Port Scan | Port count > 15 OR open ports >= 3 |
+| Brute Force | Attempts > 5 OR lockout triggered |
+| DDoS Flood | Rate > 500 req/s OR rate > 350 AND duration > 3s |
 | SQL Injection | Pattern flag = 1 OR WAF bypassed OR attempts > 3 |
-| File Access | Restricted access flag = 1 OR attempts > 5 with restricted flag |
+| File Access | Restricted flag = 1 OR attempts > 5 with restricted flag |
 
 ### ML Feature Vector (9 features)
 
 | Feature | Description |
 |---------|-------------|
-| AttemptCount | Number of login or payload attempts |
-| RequestRate | Requests per second (DDoS) |
+| AttemptCount | Login or payload attempt count |
+| RequestRate | Requests per second |
 | PortCount | Total ports probed |
-| PatternFlag | Malicious SQL pattern matched (0/1) |
+| PatternFlag | SQL pattern matched (0/1) |
 | RestrictedAccess | Restricted path accessed (0/1) |
-| OpenPortsFound | Number of open ports discovered |
+| OpenPortsFound | Open ports discovered |
 | LockoutTriggered | Account lockout activated (0/1) |
-| WAFBypassed | WAF successfully bypassed (0/1) |
-| AttackDuration | Total attack duration in seconds |
+| WAFBypassed | WAF bypassed (0/1) |
+| AttackDuration | Attack duration in seconds |
 
 ### Risk Scoring
 
@@ -150,59 +166,23 @@ Select Target → Select Attack → Execute Realistic Simulation → Generate Lo
 RiskScore = 0.5 × RuleResult + 0.5 × MLProbability
 ```
 
-| Score Range | Threat Level |
-|-------------|-------------|
-| 0.00 – 0.24 | Low |
+| Score | Threat Level |
+|-------|-------------|
+| < 0.25 | Low |
 | 0.25 – 0.49 | Moderate |
 | 0.50 – 0.74 | High |
-| 0.75 – 1.00 | Critical |
+| ≥ 0.75 | Critical |
 
----
+### Mission Scoring
 
-## Sample Output
-
-```
-  ══════════════════════════════════════════════════════════
-  TARGET : Finance Server
-  MISSION: Breach the Finance Server.
-  Goal: Access sensitive data via SQL Injection or unauthorized file access.
-  ──────────────────────────────────────────────────────────
-  Round: 2   Events: 4   Precision: 0.86   Recall: 0.79   F1: 0.82
-  ══════════════════════════════════════════════════════════
-
-  [*] Initiating SQL Injection Attack...
-  [*] Target: Finance Server
-  [*] WAF Detected: YES — Evasion required
-  [*] Loaded 12 injection payloads
-
-  [PAYLOAD  1] ' OR '1'='1                          → WAF: BLOCKED
-  [PAYLOAD  2] ' OR '1'='1' --                      → WAF: BLOCKED
-  [PAYLOAD  3] admin' --                             → WAF: BLOCKED
-  [PAYLOAD  7] ' UNION SELECT null, username...     → INJECTED ✓
-  [+] Database access obtained → Table: customers
-
-  ──────────────────────────────────────────────────────────
-  [ DETECTION RESULT ]
-  Rule Engine : FLAGGED
-  ML Model    : FLAGGED   (Probability: 0.94)
-  Risk Score  : 0.97
-  Threat Level: Critical
-
-  >>> ATTACK DETECTED — IDS ALERT RAISED <<<
-  ──────────────────────────────────────────────────────────
-
-  [ CONFUSION MATRIX ]
-  TP (Correctly Detected) : 12
-  TN (Correctly Ignored)  :  5
-  FP (False Alarm)        :  2
-  FN (Missed Attack)      :  1
-
-  [ IDS PERFORMANCE METRICS ]
-  Precision  : 0.86
-  Recall     : 0.92
-  F1-Score   : 0.89
-  Total Events: 20
-```
+| Event | Points |
+|-------|--------|
+| Successful attack | +100 |
+| Undetected success (stealth bonus) | +50 |
+| Server taken offline | +200 |
+| Admin credentials obtained | +150 |
+| Database breached | +175 |
+| Detected by IDS | -25 |
 
 ---
 
