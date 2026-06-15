@@ -13,10 +13,133 @@ namespace CyberDuel.Attacks
                    rng.Next(0, 255) + "." + rng.Next(1, 254);
         }
 
-        // ── Brute Force ───────────────────────────────────────────────────────
-        public EventLog DoBruteForce(string targetName, Dictionary<string, string> userAccounts)
+        // ── Port Scan ─────────────────────────────────────────────────────────
+        public EventLog DoPortScan(string targetName,
+            Dictionary<int, (string Service, string Status)> portTable,
+            SessionState state,
+            DifficultySettings diff)
         {
-            // Gerçek saldırılarda kullanılan yaygın şifre listesi
+            if (state.ServerOffline)
+            {
+                PrintServerOffline(targetName);
+                return MakeOfflineLog(targetName, AttackType.PortScan);
+            }
+
+            string[] scanTypes = { "Full Scan", "Quick Scan", "Stealth Scan" };
+            string scanType = scanTypes[rng.Next(scanTypes.Length)];
+            int idsAlertThreshold = 7;
+
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("\n  [*] Initiating Port Scan — " + scanType);
+            Console.WriteLine("  [*] Target: " + targetName);
+            Console.ResetColor();
+            Thread.Sleep(400);
+            Console.ForegroundColor = ConsoleColor.DarkGray;
+            Console.WriteLine("  [*] Probing " + portTable.Count + " ports...\n");
+            Console.ResetColor();
+            Thread.Sleep(300);
+
+            int openCount = 0;
+            int closedCount = 0;
+            int filteredCount = 0;
+            int scanned = 0;
+            bool idsTriggered = false;
+            DateTime start = DateTime.Now;
+
+            // Portları bir listeye çevir, sonra tekrar sözlüğe eriş
+            var portList = portTable.ToList();
+
+            foreach (var entry in portList)
+            {
+                int port = entry.Key;
+                string service = entry.Value.Service;
+                string status = entry.Value.Status;
+                scanned++;
+
+                Thread.Sleep(80);
+
+                // IDS aktifse belirli noktada bazı portları filtrele
+                if (diff.IDSActive && scanned == idsAlertThreshold && !idsTriggered)
+                {
+                    idsTriggered = true;
+                    Console.ForegroundColor = ConsoleColor.DarkYellow;
+                    Console.WriteLine("\n  [IDS ALERT] Suspicious scanning activity detected — firewall adapting...");
+                    Console.ResetColor();
+                    Thread.Sleep(800);
+                    Console.WriteLine();
+                }
+
+                // IDS tetiklendiyse açık portların bir kısmı filtered'e dönüşür
+                if (idsTriggered && status == "open" && rng.NextDouble() < 0.35)
+                    status = "filtered";
+
+                if (status == "open")
+                {
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine("  PORT " + port.ToString().PadLeft(5) + "/tcp   OPEN      " + service);
+                    openCount++;
+                    if (!state.DiscoveredOpenPorts.Contains(port))
+                        state.DiscoveredOpenPorts.Add(port);
+                }
+                else if (status == "filtered")
+                {
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine("  PORT " + port.ToString().PadLeft(5) + "/tcp   FILTERED  " + service);
+                    filteredCount++;
+                }
+                else
+                {
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.WriteLine("  PORT " + port.ToString().PadLeft(5) + "/tcp   CLOSED    " + service);
+                    closedCount++;
+                }
+                Console.ResetColor();
+            }
+
+            double duration = (DateTime.Now - start).TotalSeconds;
+
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("\n  [SCAN COMPLETE]");
+            Console.WriteLine("  Open: " + openCount + "  Filtered: " + filteredCount + "  Closed: " + closedCount);
+
+            if (openCount > 0)
+            {
+                Console.WriteLine("\n  [+] Open ports saved to session state — use for targeted attacks");
+            }
+            Console.ResetColor();
+
+            EventLog log = new EventLog();
+            log.Timestamp = DateTime.Now;
+            log.SourceIP = RandomIP();
+            log.TargetSystem = targetName;
+            log.AttackType = AttackType.PortScan;
+            log.PortCount = portTable.Count;
+            log.OpenPortsFound = openCount;
+            log.AttackDuration = (float)duration;
+            log.AttackSuccess = openCount > 0;
+            log.IsMalicious = portTable.Count > 15;
+            log.AttemptCount = 1;
+            log.RequestRate = 0;
+            log.PatternFlag = 0;
+            log.RestrictedAccess = 0;
+            log.LockoutTriggered = 0;
+            log.WAFBypassed = 0;
+
+            return log;
+        }
+
+        // ── Brute Force ───────────────────────────────────────────────────────
+        public EventLog DoBruteForce(string targetName,
+            Dictionary<string, string> userAccounts,
+            SessionState state,
+            DifficultySettings diff)
+        {
+            if (state.ServerOffline)
+            {
+                PrintServerOffline(targetName);
+                return MakeOfflineLog(targetName, AttackType.BruteForce);
+            }
+
             string[] passwords = {
                 "123456", "password", "admin", "root", "qwerty", "12345678",
                 "abc123", "letmein", "monkey", "1234567", "dragon", "111111",
@@ -27,41 +150,52 @@ namespace CyberDuel.Attacks
 
             string[] usernamesToTry = { "admin", "administrator", "root", "user", "test", "guest" };
 
-            // Hedef sistemdeki gerçek bir hesabı rastgele seç
             var accountList = userAccounts.ToList();
             var realAccount = accountList[rng.Next(accountList.Count)];
+
+            // Zorluğa göre şifre wordlist'te olmayabilir
+            bool passwordInWordlist = rng.NextDouble() >= diff.PasswordMissingChance;
 
             bool success = false;
             bool lockout = false;
             int attempts = 0;
-            int lockoutLimit = 10;
+            int failsForCurrentUser = 0;
             DateTime start = DateTime.Now;
 
             Console.ForegroundColor = ConsoleColor.Yellow;
             Console.WriteLine("\n  [*] Initiating Brute Force Attack...");
             Console.WriteLine("  [*] Target: " + targetName);
+            Console.WriteLine("  [*] Difficulty: " + diff.Name + " — Lockout after " + diff.LockoutThreshold + " fails");
             Console.ResetColor();
             Thread.Sleep(400);
-
             Console.ForegroundColor = ConsoleColor.DarkGray;
             Console.WriteLine("  [*] Loaded " + passwords.Length + " entries from wordlist");
-            Console.WriteLine("  [*] Targeting " + usernamesToTry.Length + " username candidates");
+            Console.WriteLine("  [*] Password in wordlist: " + (passwordInWordlist ? "YES" : "NO (attack will fail)"));
             Console.WriteLine();
             Console.ResetColor();
             Thread.Sleep(300);
 
+            // Önceki port scan'de SSH açık bulduysa bunu belirt
+            if (state.DiscoveredOpenPorts.Contains(22))
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine("  [+] SSH (port 22) discovered in previous scan — targeting SSH login");
+                Console.ResetColor();
+                Thread.Sleep(300);
+            }
+
             foreach (string user in usernamesToTry)
             {
                 if (success || lockout) break;
-
-                int failsForUser = 0;
+                failsForCurrentUser = 0;
 
                 foreach (string pass in passwords)
                 {
                     attempts++;
                     Thread.Sleep(55);
 
-                    bool hit = (user == realAccount.Key && pass == realAccount.Value);
+                    bool hit = passwordInWordlist &&
+                               (user == realAccount.Key && pass == realAccount.Value);
 
                     if (hit)
                     {
@@ -70,6 +204,9 @@ namespace CyberDuel.Attacks
                             user.PadRight(15) + " : " + pass.PadRight(15) + " → ACCESS GRANTED ✓");
                         Console.ResetColor();
                         success = true;
+                        state.AdminAccessGained = true;
+                        state.CompromisedUsername = user;
+                        state.CompromisedPassword = pass;
                         break;
                     }
                     else
@@ -78,14 +215,23 @@ namespace CyberDuel.Attacks
                         Console.WriteLine("  [ATTEMPT " + attempts.ToString().PadLeft(3) + "] " +
                             user.PadRight(15) + " : " + pass.PadRight(15) + " → FAILED");
                         Console.ResetColor();
-                        failsForUser++;
+                        failsForCurrentUser++;
                     }
 
-                    // Hesap kilitleme mekanizması
-                    if (failsForUser >= lockoutLimit)
+                    // IDS aktifse yarı noktada bağlantı yavaşlatma
+                    if (diff.IDSActive && attempts == 5)
                     {
                         Console.ForegroundColor = ConsoleColor.DarkYellow;
-                        Console.WriteLine("\n  [!] ACCOUNT LOCKED: '" + user + "' — Too many failed attempts");
+                        Console.WriteLine("\n  [IDS] Repeated login failures detected — connection throttled (2s delay)");
+                        Console.ResetColor();
+                        Thread.Sleep(2000);
+                    }
+
+                    // Lockout
+                    if (failsForCurrentUser >= diff.LockoutThreshold)
+                    {
+                        Console.ForegroundColor = ConsoleColor.DarkYellow;
+                        Console.WriteLine("\n  [!] ACCOUNT LOCKED: '" + user + "' — Lockout threshold reached");
                         Console.WriteLine("  [!] Waiting for cooldown...\n");
                         Console.ResetColor();
                         Thread.Sleep(2000);
@@ -97,10 +243,24 @@ namespace CyberDuel.Attacks
 
             double duration = (DateTime.Now - start).TotalSeconds;
 
-            if (!success)
+            if (success)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("\n  [+] Credentials obtained: " +
+                    state.CompromisedUsername + " / " + state.CompromisedPassword);
+                Console.WriteLine("  [+] Admin access gained — file access privileges elevated");
+                Console.ResetColor();
+            }
+            else if (!passwordInWordlist)
+            {
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine("\n  [-] Password not found in wordlist — wordlist expansion required");
+                Console.ResetColor();
+            }
+            else
             {
                 Console.ForegroundColor = ConsoleColor.DarkRed;
-                Console.WriteLine("\n  [-] Brute Force Failed — No valid credentials found.");
+                Console.WriteLine("\n  [-] Brute Force Failed — No valid credentials found");
                 Console.ResetColor();
             }
 
@@ -124,97 +284,28 @@ namespace CyberDuel.Attacks
             return log;
         }
 
-        // ── Port Scan ─────────────────────────────────────────────────────────
-        public EventLog DoPortScan(string targetName, Dictionary<int, (string Service, string Status)> portTable)
+        // ── DDoS Flood ────────────────────────────────────────────────────────
+        public EventLog DoDDoS(string targetName,
+            int baseCapacity,
+            SessionState state,
+            DifficultySettings diff)
         {
-            // Tarama tipi seç
-            string[] scanTypes = { "Full Scan", "Quick Scan", "Stealth Scan" };
-            string scanType = scanTypes[rng.Next(scanTypes.Count())];
-
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("\n  [*] Initiating Port Scan...");
-            Console.WriteLine("  [*] Target: " + targetName);
-            Console.WriteLine("  [*] Scan Type: " + scanType);
-            Console.ResetColor();
-            Thread.Sleep(400);
-
-            Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine("  [*] Probing " + portTable.Count + " ports...\n");
-            Console.ResetColor();
-            Thread.Sleep(300);
-
-            int openCount = 0;
-            int closedCount = 0;
-            int filteredCount = 0;
-            DateTime start = DateTime.Now;
-
-            foreach (var entry in portTable)
+            if (state.ServerOffline)
             {
-                int port = entry.Key;
-                string service = entry.Value.Service;
-                string status = entry.Value.Status;
-
-                Thread.Sleep(80);
-
-                if (status == "open")
-                {
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    Console.WriteLine("  PORT " + port.ToString().PadLeft(5) + "/tcp   OPEN      " + service);
-                    openCount++;
-                }
-                else if (status == "filtered")
-                {
-                    Console.ForegroundColor = ConsoleColor.Yellow;
-                    Console.WriteLine("  PORT " + port.ToString().PadLeft(5) + "/tcp   FILTERED  " + service);
-                    filteredCount++;
-                }
-                else
-                {
-                    Console.ForegroundColor = ConsoleColor.DarkGray;
-                    Console.WriteLine("  PORT " + port.ToString().PadLeft(5) + "/tcp   CLOSED    " + service);
-                    closedCount++;
-                }
-
+                Console.ForegroundColor = ConsoleColor.DarkRed;
+                Console.WriteLine("\n  [*] " + targetName + " is already offline.");
                 Console.ResetColor();
+                return MakeOfflineLog(targetName, AttackType.DDoSFlood);
             }
 
-            double duration = (DateTime.Now - start).TotalSeconds;
+            int maxCapacity = (int)(baseCapacity * diff.CapacityMultiplier);
 
-            Console.ForegroundColor = ConsoleColor.Cyan;
-            Console.WriteLine("\n  [SCAN COMPLETE]");
-            Console.WriteLine("  Open: " + openCount + "  Filtered: " + filteredCount + "  Closed: " + closedCount);
-            Console.ResetColor();
-
-            EventLog log = new EventLog();
-            log.Timestamp = DateTime.Now;
-            log.SourceIP = RandomIP();
-            log.TargetSystem = targetName;
-            log.AttackType = AttackType.PortScan;
-            log.PortCount = portTable.Count;
-            log.OpenPortsFound = openCount;
-            log.AttackDuration = (float)duration;
-            log.AttackSuccess = openCount > 0;
-            log.IsMalicious = portTable.Count > 15;
-            log.AttemptCount = 1;
-            log.RequestRate = 0;
-            log.PatternFlag = 0;
-            log.RestrictedAccess = 0;
-            log.LockoutTriggered = 0;
-            log.WAFBypassed = 0;
-
-            return log;
-        }
-
-        // ── DDoS Flood ────────────────────────────────────────────────────────
-        public EventLog DoDDoS(string targetName, int maxCapacity)
-        {
             Console.ForegroundColor = ConsoleColor.Red;
             Console.WriteLine("\n  [*] Initiating DDoS Flood Attack...");
             Console.WriteLine("  [*] Target: " + targetName);
-            Console.WriteLine("  [*] Server Capacity: " + maxCapacity + " req/s");
+            Console.WriteLine("  [*] Server Capacity: " + maxCapacity + " req/s (" + diff.Name + ")");
             Console.ResetColor();
             Thread.Sleep(400);
-
             Console.ForegroundColor = ConsoleColor.DarkGray;
             Console.WriteLine("  [*] Spinning up botnet nodes...");
             Console.ResetColor();
@@ -224,20 +315,33 @@ namespace CyberDuel.Attacks
             int step = rng.Next(80, 200);
             string serverStatus = "STABLE";
             bool serverDown = false;
+            bool idsRateLimiting = false;
             DateTime start = DateTime.Now;
             int seconds = 0;
+            int barLength = 30;
 
             Console.WriteLine();
 
             while (currentRate < maxCapacity * 1.4)
             {
                 seconds++;
+
+                // IDS aktifse DEGRADED noktasında rate limiting başlatır
+                if (diff.IDSActive && currentRate >= maxCapacity * 0.5 && !idsRateLimiting)
+                {
+                    idsRateLimiting = true;
+                    Console.ForegroundColor = ConsoleColor.DarkYellow;
+                    Console.WriteLine("\n  [IDS] Anomalous traffic detected — rate limiting activated\n");
+                    Console.ResetColor();
+                    Thread.Sleep(500);
+                    step = (int)(step * 0.55); // rate artışı yavaşlıyor
+                }
+
                 currentRate += step + rng.Next(-30, 50);
                 if (currentRate < 0) currentRate = 0;
 
                 Thread.Sleep(300);
 
-                // Sunucu durumu güncelle
                 if (currentRate >= maxCapacity)
                 {
                     serverStatus = "DOWN";
@@ -245,26 +349,24 @@ namespace CyberDuel.Attacks
                 }
                 else if (currentRate >= maxCapacity * 0.75)
                     serverStatus = "CRITICAL";
-                else if (currentRate >= maxCapacity * 0.5)
+                else if (currentRate >= maxCapacity * 0.50)
                     serverStatus = "DEGRADED";
                 else
                     serverStatus = "STABLE";
 
-                // Renk belirle
                 if (serverStatus == "DOWN") Console.ForegroundColor = ConsoleColor.DarkRed;
                 else if (serverStatus == "CRITICAL") Console.ForegroundColor = ConsoleColor.Red;
                 else if (serverStatus == "DEGRADED") Console.ForegroundColor = ConsoleColor.Yellow;
                 else Console.ForegroundColor = ConsoleColor.Green;
 
-                // Progress bar
-                int barLength = 30;
                 int filled = (int)((float)currentRate / (maxCapacity * 1.4f) * barLength);
                 if (filled > barLength) filled = barLength;
                 string bar = "[" + new string('#', filled) + new string('-', barLength - filled) + "]";
+                string limiter = idsRateLimiting ? " [IDS:LIMIT]" : "";
 
                 Console.WriteLine("  [" + seconds.ToString().PadLeft(2) + "s] " +
                     (currentRate.ToString() + " req/s").PadRight(12) +
-                    bar + "  Server: " + serverStatus);
+                    bar + "  " + serverStatus + limiter);
                 Console.ResetColor();
 
                 if (serverDown) break;
@@ -274,14 +376,17 @@ namespace CyberDuel.Attacks
 
             if (serverDown)
             {
+                state.ServerOffline = true;
                 Console.ForegroundColor = ConsoleColor.DarkRed;
-                Console.WriteLine("\n  [!!!] TARGET IS DOWN — Service unavailable");
+                Console.WriteLine("\n  [!!!] " + targetName + " IS DOWN — Service unavailable");
+                Console.WriteLine("  [!!!] Server will remain offline for this session");
                 Console.ResetColor();
             }
             else
             {
                 Console.ForegroundColor = ConsoleColor.Green;
-                Console.WriteLine("\n  [-] Server survived the flood — DDoS unsuccessful");
+                Console.WriteLine("\n  [-] Server survived the flood" +
+                    (idsRateLimiting ? " — IDS rate limiting prevented takedown" : ""));
                 Console.ResetColor();
             }
 
@@ -306,9 +411,17 @@ namespace CyberDuel.Attacks
         }
 
         // ── SQL Injection ─────────────────────────────────────────────────────
-        public EventLog DoSqlInjection(string targetName, bool hasWAF)
+        public EventLog DoSqlInjection(string targetName,
+            bool hasWAF,
+            SessionState state,
+            DifficultySettings diff)
         {
-            // Gerçek SQL injection payload listesi
+            if (state.ServerOffline)
+            {
+                PrintServerOffline(targetName);
+                return MakeOfflineLog(targetName, AttackType.SqlInjection);
+            }
+
             string[] payloads = {
                 "' OR '1'='1",
                 "' OR '1'='1' --",
@@ -326,16 +439,23 @@ namespace CyberDuel.Attacks
 
             string[] targetTables = { "users", "customers", "accounts", "credit_cards", "sessions", "admin_panel" };
 
+            // Önceki port scan'de MSSQL (1433) bulunduysa başarı bonusu
+            bool sqlPortKnown = state.DiscoveredOpenPorts.Contains(1433) ||
+                                state.DiscoveredOpenPorts.Contains(3306);
+
             Console.ForegroundColor = ConsoleColor.Magenta;
             Console.WriteLine("\n  [*] Initiating SQL Injection Attack...");
             Console.WriteLine("  [*] Target: " + targetName);
             Console.WriteLine("  [*] WAF Detected: " + (hasWAF ? "YES — Evasion required" : "NO — Direct injection"));
+            if (sqlPortKnown)
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine("  [+] DB port discovered in previous scan — injection targeting active DB");
+            }
             Console.ResetColor();
             Thread.Sleep(400);
-
             Console.ForegroundColor = ConsoleColor.DarkGray;
-            Console.WriteLine("  [*] Loaded " + payloads.Length + " injection payloads");
-            Console.WriteLine();
+            Console.WriteLine("  [*] Loaded " + payloads.Length + " injection payloads\n");
             Console.ResetColor();
             Thread.Sleep(300);
 
@@ -345,13 +465,16 @@ namespace CyberDuel.Attacks
             string successTable = "";
             DateTime start = DateTime.Now;
 
+            // Port bilgisi varsa injection başarı oranı artar
+            double successBonus = sqlPortKnown ? 0.15 : 0.0;
+
             foreach (string payload in payloads)
             {
                 attempted++;
                 Thread.Sleep(120);
 
-                bool blocked = hasWAF && rng.NextDouble() < 0.65; // WAF varsa %65 ihtimalle engeller
-                bool injected = !blocked && rng.NextDouble() < 0.55;
+                bool blocked = hasWAF && rng.NextDouble() < diff.WAFBlockRate;
+                bool injected = !blocked && rng.NextDouble() < (diff.InjectionSuccessRate + successBonus);
 
                 if (blocked)
                 {
@@ -368,9 +491,10 @@ namespace CyberDuel.Attacks
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine("  [PAYLOAD " + attempted.ToString().PadLeft(2) + "] " +
                         payload.PadRight(40) + " → INJECTED ✓");
-                    Console.WriteLine("  [+] Database access obtained → Table: " + successTable);
                     Console.ResetColor();
                     success = true;
+                    state.DatabaseBreached = true;
+                    state.BreachedTable = successTable;
                     break;
                 }
                 else
@@ -384,7 +508,25 @@ namespace CyberDuel.Attacks
 
             double duration = (DateTime.Now - start).TotalSeconds;
 
-            if (!success)
+            if (success)
+            {
+                // Sahte çekilen veri göster
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("\n  [+] Database access obtained → Table: " + successTable);
+                Console.WriteLine("\n  [EXTRACTED DATA — " + successTable.ToUpper() + "]");
+                Console.ForegroundColor = ConsoleColor.DarkGray;
+                Console.WriteLine("  +----+------------------+-------------------------+----------------+");
+                Console.WriteLine("  | ID | Name             | Email                   | Sensitive      |");
+                Console.WriteLine("  +----+------------------+-------------------------+----------------+");
+                Console.WriteLine("  |  1 | John Smith       | jsmith@example.com      | ****-****-1234 |");
+                Console.WriteLine("  |  2 | Emma Wilson      | ewilson@corp.com        | ****-****-5678 |");
+                Console.WriteLine("  |  3 | Michael Brown    | mbrown@mail.com         | ****-****-9012 |");
+                Console.WriteLine("  | .. | ...              | ...                     | ...            |");
+                Console.WriteLine("  +----+------------------+-------------------------+----------------+");
+                Console.WriteLine("  1,247 records extracted");
+                Console.ResetColor();
+            }
+            else
             {
                 Console.ForegroundColor = ConsoleColor.DarkRed;
                 Console.WriteLine("\n  [-] All payloads failed — Injection unsuccessful");
@@ -412,19 +554,46 @@ namespace CyberDuel.Attacks
         }
 
         // ── Unauthorized File Access ──────────────────────────────────────────
-        public EventLog DoFileAccess(string targetName, Dictionary<string, string> fileSystem)
+        public EventLog DoFileAccess(string targetName,
+            Dictionary<string, string> fileSystem,
+            SessionState state,
+            DifficultySettings diff)
         {
-            // Kullanıcı rolü — guest'ten başla, privilege escalation dene
-            string[] roles = { "guest", "user", "admin" };
-            string currentRole = roles[rng.Next(2)]; // guest veya user olarak başla
+            if (state.ServerOffline)
+            {
+                PrintServerOffline(targetName);
+                return MakeOfflineLog(targetName, AttackType.FileAccess);
+            }
+
+            // Önceki brute force başarısıysa elevated role ile başla
+            string currentRole = "guest";
+            bool alreadyElevated = false;
+
+            if (state.AdminAccessGained)
+            {
+                currentRole = "admin";
+                alreadyElevated = true;
+            }
+            else if (rng.NextDouble() > 0.5)
+            {
+                currentRole = "user";
+            }
 
             Console.ForegroundColor = ConsoleColor.Blue;
             Console.WriteLine("\n  [*] Initiating Unauthorized File Access...");
             Console.WriteLine("  [*] Target: " + targetName);
-            Console.WriteLine("  [*] Current Role: " + currentRole.ToUpper());
+
+            if (alreadyElevated)
+            {
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.WriteLine("  [+] Admin credentials from previous brute force — starting as ADMIN");
+            }
+            else
+            {
+                Console.WriteLine("  [*] Current Role: " + currentRole.ToUpper());
+            }
             Console.ResetColor();
             Thread.Sleep(400);
-
             Console.ForegroundColor = ConsoleColor.DarkGray;
             Console.WriteLine("  [*] Enumerating filesystem paths...\n");
             Console.ResetColor();
@@ -432,11 +601,9 @@ namespace CyberDuel.Attacks
 
             bool anyRestricted = false;
             bool privilegeEscalated = false;
-            int accessCount = 0;
-            DateTime start = DateTime.Now;
 
-            // Privilege escalation denemesi
-            if (rng.NextDouble() < 0.40)
+            // Henüz elevated değilse privilege escalation dene
+            if (!alreadyElevated)
             {
                 Thread.Sleep(200);
                 Console.ForegroundColor = ConsoleColor.DarkYellow;
@@ -451,19 +618,20 @@ namespace CyberDuel.Attacks
                 }
                 else
                 {
-                    Console.WriteLine("  [-] Privilege escalation failed — Permission denied");
+                    Console.WriteLine("  [-] Privilege escalation failed — continuing as " + currentRole.ToUpper());
                 }
                 Console.ResetColor();
                 Console.WriteLine();
             }
 
-            // Dosyalara erişim dene
+            int accessCount = 0;
+            DateTime start = DateTime.Now;
+
             foreach (var file in fileSystem)
             {
                 string path = file.Key;
                 string required = file.Value;
                 accessCount++;
-
                 Thread.Sleep(90);
 
                 bool hasAccess = RoleHasAccess(currentRole, required);
@@ -473,6 +641,17 @@ namespace CyberDuel.Attacks
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine("  [ACCESS] " + path.PadRight(35) + " → ALLOWED  (" + currentRole + ")");
                     Console.ResetColor();
+
+                    // Admin ise hassas dosyalarda içerik göster
+                    if (currentRole == "admin" && path.Contains("config"))
+                    {
+                        Thread.Sleep(100);
+                        Console.ForegroundColor = ConsoleColor.DarkCyan;
+                        Console.WriteLine("           > <db_host>192.168.10.100</db_host>");
+                        Console.WriteLine("           > <db_user>admin</db_user>");
+                        Console.WriteLine("           > <db_pass>F!n@nce_DB_2024</db_pass>");
+                        Console.ResetColor();
+                    }
                 }
                 else
                 {
@@ -480,6 +659,15 @@ namespace CyberDuel.Attacks
                     Console.WriteLine("  [ACCESS] " + path.PadRight(35) + " → DENIED   (requires: " + required + ")");
                     Console.ResetColor();
                     anyRestricted = true;
+
+                    // IDS aktifse hassas path erişiminde uyarı
+                    if (diff.IDSActive && (path.Contains("shadow") || path.Contains("credentials")))
+                    {
+                        Console.ForegroundColor = ConsoleColor.DarkYellow;
+                        Console.WriteLine("  [IDS ALERT] Attempt to access critical system path — incident logged");
+                        Console.ResetColor();
+                        Thread.Sleep(400);
+                    }
                 }
             }
 
@@ -493,7 +681,7 @@ namespace CyberDuel.Attacks
             log.RestrictedAccess = anyRestricted ? 1 : 0;
             log.AttemptCount = accessCount;
             log.AttackDuration = (float)duration;
-            log.AttackSuccess = privilegeEscalated;
+            log.AttackSuccess = privilegeEscalated || alreadyElevated;
             log.IsMalicious = anyRestricted;
             log.RequestRate = 0;
             log.PortCount = 0;
@@ -505,12 +693,10 @@ namespace CyberDuel.Attacks
             return log;
         }
 
-        // Rol kontrolü — guest < user < admin < root
+        // ── Yardımcılar ───────────────────────────────────────────────────────
         private bool RoleHasAccess(string userRole, string required)
         {
-            int userLevel = RoleLevel(userRole);
-            int requiredLevel = RoleLevel(required);
-            return userLevel >= requiredLevel;
+            return RoleLevel(userRole) >= RoleLevel(required);
         }
 
         private int RoleLevel(string role)
@@ -518,7 +704,28 @@ namespace CyberDuel.Attacks
             if (role == "root") return 4;
             if (role == "admin") return 3;
             if (role == "user") return 2;
-            return 1; // guest
+            return 1;
+        }
+
+        private void PrintServerOffline(string targetName)
+        {
+            Console.ForegroundColor = ConsoleColor.DarkRed;
+            Console.WriteLine("\n  [!!!] " + targetName + " is OFFLINE — attack cannot be executed");
+            Console.ResetColor();
+            Thread.Sleep(800);
+        }
+
+        private EventLog MakeOfflineLog(string targetName, AttackType type)
+        {
+            return new EventLog
+            {
+                Timestamp = DateTime.Now,
+                SourceIP = RandomIP(),
+                TargetSystem = targetName,
+                AttackType = type,
+                AttackSuccess = false,
+                IsMalicious = false
+            };
         }
     }
 }
