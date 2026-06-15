@@ -4,8 +4,6 @@ using CyberDuel.Models;
 
 namespace CyberDuel.Detection
 {
-    // ML.NET kullanarak saldırı tespiti yapan sınıf
-    // Decision Tree (FastTree) algoritmasını kullandım
     public class MLDetector
     {
         private MLContext mlContext;
@@ -15,13 +13,11 @@ namespace CyberDuel.Detection
 
         public MLDetector()
         {
-            // Tutarsızlığı önlemek için Seed sabitlendi
             mlContext = new MLContext(seed: 0);
         }
 
         public void Train(List<EventLog> data)
         {
-            // EventLog listesi ML formatına çevirir
             List<MLEventData> mlData = new List<MLEventData>();
 
             foreach (EventLog log in data)
@@ -32,20 +28,22 @@ namespace CyberDuel.Detection
                 item.PortCount = log.PortCount;
                 item.PatternFlag = log.PatternFlag;
                 item.RestrictedAccess = log.RestrictedAccess;
+                item.OpenPortsFound = log.OpenPortsFound;
+                item.LockoutTriggered = log.LockoutTriggered;
+                item.WAFBypassed = log.WAFBypassed;
+                item.AttackDuration = log.AttackDuration;
                 item.Label = log.IsMalicious;
                 mlData.Add(item);
             }
 
             IDataView dataView = mlContext.Data.LoadFromEnumerable(mlData);
-
-            // %80 eğitim, %20 test 
             var split = mlContext.Data.TrainTestSplit(dataView, testFraction: 0.2);
 
-            // Feature sütunlarını birleştirme ve FastTree ile eğitme
             var pipeline = mlContext.Transforms
                 .Concatenate("Features",
                     "AttemptCount", "RequestRate", "PortCount",
-                    "PatternFlag", "RestrictedAccess")
+                    "PatternFlag", "RestrictedAccess", "OpenPortsFound",
+                    "LockoutTriggered", "WAFBypassed", "AttackDuration")
                 .Append(mlContext.BinaryClassification.Trainers
                     .FastTree(labelColumnName: "Label", featureColumnName: "Features"));
 
@@ -53,10 +51,8 @@ namespace CyberDuel.Detection
             engine = mlContext.Model.CreatePredictionEngine<MLEventData, MLPrediction>(model);
             Trained = true;
 
-            // Test seti  performansı ölçümü ve ekrana yazdırma kısmı
             var predictions = model.Transform(split.TestSet);
-            var metrics = mlContext.BinaryClassification.Evaluate(
-                predictions, labelColumnName: "Label");
+            var metrics = mlContext.BinaryClassification.Evaluate(predictions, labelColumnName: "Label");
 
             Console.WriteLine("  [ML] Training complete.");
             Console.WriteLine("  [ML] Accuracy : " + metrics.Accuracy.ToString("P1"));
@@ -65,13 +61,16 @@ namespace CyberDuel.Detection
 
         public bool Predict(EventLog log, out float probability)
         {
-            // Gelen logu ML formatına çevirilir tahmin yapar
             MLEventData input = new MLEventData();
             input.AttemptCount = log.AttemptCount;
             input.RequestRate = log.RequestRate;
             input.PortCount = log.PortCount;
             input.PatternFlag = log.PatternFlag;
             input.RestrictedAccess = log.RestrictedAccess;
+            input.OpenPortsFound = log.OpenPortsFound;
+            input.LockoutTriggered = log.LockoutTriggered;
+            input.WAFBypassed = log.WAFBypassed;
+            input.AttackDuration = log.AttackDuration;
 
             MLPrediction result = engine.Predict(input);
             probability = result.Probability;

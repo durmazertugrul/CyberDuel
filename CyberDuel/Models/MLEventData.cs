@@ -2,7 +2,6 @@
 
 namespace CyberDuel.Models
 {
-    // ML.NET'in beklediği giriş formatı
     public class MLEventData
     {
         [LoadColumn(0)] public float AttemptCount { get; set; }
@@ -10,10 +9,13 @@ namespace CyberDuel.Models
         [LoadColumn(2)] public float PortCount { get; set; }
         [LoadColumn(3)] public float PatternFlag { get; set; }
         [LoadColumn(4)] public float RestrictedAccess { get; set; }
-        [LoadColumn(5)] public bool Label { get; set; }
+        [LoadColumn(5)] public float OpenPortsFound { get; set; }
+        [LoadColumn(6)] public float LockoutTriggered { get; set; }
+        [LoadColumn(7)] public float WAFBypassed { get; set; }
+        [LoadColumn(8)] public float AttackDuration { get; set; }
+        [LoadColumn(9)] public bool Label { get; set; }
     }
 
-    // ML.NET tahmin sonucunu tutuluyor
     public class MLPrediction
     {
         [ColumnName("PredictedLabel")]
