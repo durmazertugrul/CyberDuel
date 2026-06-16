@@ -20,7 +20,6 @@ namespace CyberDuel.Models
     {
         [ColumnName("PredictedLabel")]
         public bool PredictedLabel { get; set; }
-
         [ColumnName("Probability")]
         public float Probability { get; set; }
     }

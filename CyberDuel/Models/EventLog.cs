@@ -6,8 +6,6 @@
         public string SourceIP { get; set; }
         public string TargetSystem { get; set; }
         public AttackType AttackType { get; set; }
-
-        // ML feature alanları — zenginleştirildi
         public float AttemptCount { get; set; }
         public float RequestRate { get; set; }
         public float PortCount { get; set; }
@@ -17,12 +15,8 @@
         public float LockoutTriggered { get; set; }
         public float WAFBypassed { get; set; }
         public float AttackDuration { get; set; }
-
-        // Saldırı sonucu
         public bool AttackSuccess { get; set; }
         public bool IsMalicious { get; set; }
-
-        // Tespit sonuçları
         public bool RuleDetected { get; set; }
         public bool MLDetected { get; set; }
         public float MLProbability { get; set; }
