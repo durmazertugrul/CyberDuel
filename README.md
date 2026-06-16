@@ -1,7 +1,7 @@
 # CyberDuel
 ### Console-Based AI Cybersecurity Simulation
 
-A console application developed in C# that simulates realistic cyber attack scenarios against virtual target systems and evaluates defensive detection performance using both rule-based logic and a machine learning model.
+A console application developed in C# that simulates realistic, step-by-step cyber attack scenarios against configurable virtual target systems and evaluates defensive detection performance through a hybrid rule-based and machine learning pipeline.
 
 > Developed as a final project for the **Computer and Network Security** course  
 > Muğla Sıtkı Koçman University — Faculty of Technology  
@@ -11,24 +11,50 @@ A console application developed in C# that simulates realistic cyber attack scen
 
 ## Overview
 
-CyberDuel places the user in the role of an attacker targeting one of three simulated server environments across three difficulty levels. Attacks are realistic and step-by-step: brute force iterates a real wordlist and triggers account lockout, port scan probes a defined port table and stores discovered ports for use in subsequent attacks, DDoS tracks cumulative load against server capacity until the target goes offline, SQL injection tests real payloads against WAF-protected targets, and file access navigates a role-based permission system with privilege escalation attempts. A session state persists across attacks — a compromised server stays offline, admin credentials elevate file access privileges, and discovered open ports improve injection success rates. Every event is analyzed by a hybrid two-layer detection system and contributes to a mission score.
+CyberDuel places the user in the role of an attacker targeting one of three simulated server environments. Each attack type executes a realistic simulation: brute force iterates a real wordlist against actual user accounts and triggers account lockout; port scan probes a defined port table port by port and stores discovered services for subsequent use; DDoS tracks cumulative request rate against server capacity and transitions through STABLE, DEGRADED, CRITICAL, and DOWN states; SQL injection tests a list of known payloads against WAF-protected targets with a success rate that scales with the number of payloads attempted; file access navigates a role-based permission system and optionally attempts privilege escalation.
+
+A persistent session state carries information across attacks within a mission: discovered open ports enhance subsequent injection attempts, compromised credentials elevate file access privileges, and a server taken offline blocks all further attacks. When a target is compromised, lateral movement bonuses apply to the next target. The IDS responds in real time during attacks — throttling connections, activating rate limiting, and permanently banning IPs that exceed the detection threshold. Every event is analyzed by two independent detection layers and contributes to a running mission score.
 
 ---
 
 ## Features
 
-- **3 difficulty levels:** Easy, Medium, Hard — affect WAF strength, lockout threshold, server capacity, and password availability
-- **3 target systems:** Finance Server, Authentication Server, Public Web Gateway — each with port tables, file systems, user accounts, WAF flag, and server capacity
-- **5 realistic attack types:** Port Scan, Brute Force, DDoS Flood, SQL Injection, Unauthorized File Access
-- **Session state & attack chaining** — attack results persist and influence subsequent attacks
-- **IDS real-time intervention** — throttling during brute force, rate limiting during DDoS, firewall adaptation during port scan
-- **Synthetic log generation** — 600 labeled records with 9 features including borderline and evasive samples for ML independence
-- **Rule-based detection** — multi-condition rules per attack type
-- **ML-based detection** — FastTree binary classifier (ML.NET) trained on 9 features
-- **Risk scoring** — combined score mapped to Low / Moderate / High / Critical
-- **Mission scoring** — points for successful attacks with stealth and objective bonuses
-- **JSON session log export** — full event log saved after each mission
-- **Performance metrics** — Precision, Recall, F1-Score, Confusion Matrix
+**Simulation**
+- 3 difficulty levels (Easy / Medium / Hard) controlling WAF strength, lockout threshold, server capacity, password availability, and IDS aggressiveness
+- 3 target systems, each with a unique port table, role-based file system, user accounts, WAF flag, and server capacity
+- 5 realistic attack types with step-by-step console output
+- Stealth mode for each attack — slower execution, fewer payloads, reduced IDS trigger chance; SQL injection success rate scales proportionally with payload count
+- Normal / Stealth mode selection before each attack
+
+**Session Logic**
+- Persistent session state across all attacks in a mission
+- Attack chaining: port 22 discovery redirects brute force to SSH usernames; DB port discovery enhances SQL injection; successful brute force elevates file access starting role
+- Server offline state persists — once taken down via DDoS, all subsequent attacks are blocked
+- Lateral movement: compromising one target applies difficulty bonuses to the next
+- Coordinated attack detection: 3+ different attack types within 90 seconds triggers an IDS alert
+- Repeated pattern detection: same attack type 3 times consecutively triggers an IDS alert
+
+**IDS and Detection**
+- Real-time IDS intervention: connection throttling during brute force, rate limiting during DDoS, firewall adaptation during port scan
+- IP tracking: repeat attackers detected with lower thresholds
+- IP ban: 3 detections permanently ban the source IP for the session; banned-IP attacks are counted separately and excluded from rule/ML metrics
+- Rule-based engine with multi-condition rules per attack type
+- FastTree binary classifier (ML.NET) trained on 600 synthetic records with 9 features
+- Synthetic data includes borderline normal traffic and evasive attack samples to ensure ML independence from the rule engine
+- ML interpretability via single-sample perturbation: each feature is individually set to baseline and the resulting probability drop is measured to identify top contributors
+- False negative explanation: when an attack is missed, the system explains which threshold was not reached
+
+**Evaluation and Reporting**
+- Per-attack-type Precision, Recall, F1-Score table
+- ASCII bar chart of detection rates by attack type
+- Separate Rule-Only / ML-Only / Hybrid layer comparison
+- Pre-blocked IP counter shown separately from detection metrics
+- SIEM-style event timeline at mission end
+- Mission scoring with attack success bonuses, stealth bonuses, objective bonuses, and detection penalties
+- Session rating (Novice / Intermediate / Advanced / Elite)
+- JSON session log export with all feature values (enables replay analysis)
+- Replay analysis: load a previous session log and re-run the current ML model to identify changed decisions
+- Multi-session history table comparing score, F1, Rule F1, and ML F1 across missions
 
 ---
 
@@ -41,25 +67,29 @@ CyberDuel/
 │   ├── ThreatLevel.cs             # Enum: risk levels
 │   ├── EventLog.cs                # Core event record (9 ML features)
 │   ├── MLEventData.cs             # ML.NET input/output types
-│   ├── SessionState.cs            # Persistent state across attacks
-│   └── DifficultySettings.cs      # Easy / Medium / Hard configuration
+│   ├── DifficultySettings.cs      # Easy / Medium / Hard configuration
+│   ├── SessionState.cs            # Persistent state, layer metrics, pattern tracking
+│   └── SessionRecord.cs           # Per-mission summary for history table
 ├── Systems/
-│   ├── FinanceServer.cs           # Target 1: port table, file system, WAF, accounts
-│   ├── AuthServer.cs              # Target 2: port table, file system, accounts
-│   └── WebGateway.cs              # Target 3: port table, file system, capacity
+│   ├── FinanceServer.cs           # Port table, file system, WAF, user accounts
+│   ├── AuthServer.cs
+│   └── WebGateway.cs
 ├── Attacks/
-│   └── AttackSimulator.cs         # Realistic step-by-step simulations with chaining
+│   └── AttackSimulator.cs         # All 5 attack simulations with stealth mode
 ├── Data/
 │   └── SyntheticDataGenerator.cs  # 600 records: normal, borderline, evasive, attack
 ├── Detection/
 │   ├── RuleEngine.cs              # Multi-condition rule-based detection
-│   └── MLDetector.cs              # ML.NET FastTree classifier (9 features)
+│   ├── MLDetector.cs              # FastTree classifier + perturbation-based explanation
+│   └── IPTracker.cs               # IP-level attack tracking and ban enforcement
 ├── Scoring/
-│   ├── RiskScorer.cs              # Risk score + threat level
+│   ├── RiskScorer.cs              # Composite risk score and threat level mapping
 │   └── MissionScorer.cs           # Point-based mission scoring
 ├── Evaluation/
-│   └── MetricsReporter.cs         # Precision, Recall, F1, Confusion Matrix
-└── Program.cs                     # Main loop: difficulty, state, scoring, log export
+│   ├── MetricsReporter.cs         # Confusion matrix, per-type metrics, bar chart
+│   ├── SIEMTimeline.cs            # SIEM-style event timeline
+│   └── ReplayAnalyzer.cs          # Re-analyze previous session logs with current ML model
+└── Program.cs                     # Main loop: difficulty, state, detection, scoring, export
 ```
 
 ---
@@ -101,30 +131,46 @@ Or press **F5** in Visual Studio.
 ## How It Works
 
 ### Startup
-Select a difficulty level. `SyntheticDataGenerator` produces 600 labeled records — including borderline normal traffic and evasive attack samples that fall below rule thresholds — and saves them to `training_data.csv`. The `MLDetector` trains a FastTree classifier on 80% of this data using 9 features.
+Select a difficulty level. `SyntheticDataGenerator` produces 600 labeled records — including borderline normal traffic and evasive attack samples — and saves them to `training_data.csv`. The `MLDetector` trains a FastTree binary classifier on 80% of this data using 9 features and reports accuracy and F1-score on the held-out 20%.
 
 ### Session Flow
 ```
 Select Difficulty → Select Target → Mission Loop
                                          ↓
-                              Select Attack → Execute Simulation
+                       Select Attack + Mode (Normal / Stealth)
                                          ↓
-                              Session State Updated (ports, credentials, server status)
+                             Execute Realistic Simulation
                                          ↓
-                              Rule Engine + ML Model → Risk Score → Threat Level
+                         Check IP Ban → if banned: pre-block, skip pipeline
                                          ↓
-                              Score Recorded → Metrics Accumulated
+                        Rule Engine (multi-condition) → boolean flag
+                        ML Model (9-feature FastTree) → probability
                                          ↓
-                              [0] End Mission → Summary + JSON Export
+                         Risk Score = 0.5 × Rule + 0.5 × ML probability
+                         Threat Level: Low / Moderate / High / Critical
+                                         ↓
+                         ML Explanation (perturbation-based)
+                         Miss Explanation (if false negative)
+                         Pattern Alert (coordinated / repeated)
+                                         ↓
+                         Metrics accumulated — Score recorded
+                                         ↓
+                     [0] End Mission → SIEM Timeline → Layer Comparison
+                                    → IDS Metrics → Per-type Metrics
+                                    → Bar Chart → Score → JSON Export
+                                    → Replay option → New mission?
 ```
 
 ### Attack Chaining
 
-| Previous Attack | Effect on Next Attack |
-|-----------------|----------------------|
-| Port Scan (port 1433/3306 found) | SQL Injection success rate +15% |
-| Brute Force (success) | File Access starts with admin role |
-| DDoS (server down) | All subsequent attacks blocked |
+| Discovery | Effect |
+|-----------|--------|
+| Port 22 open | Brute force targets SSH usernames |
+| Port 389/636 open | Brute force targets LDAP usernames |
+| Port 1433/3306 open | SQL injection success rate +20% |
+| Brute force success | File access starts with admin role |
+| DDoS success | Target goes offline — all further attacks blocked |
+| Any target compromised | Next target receives lateral movement difficulty bonus |
 
 ### Difficulty Levels
 
@@ -132,19 +178,29 @@ Select Difficulty → Select Target → Mission Loop
 |---------|------|--------|------|
 | WAF Block Rate | 30% | 65% | 85% |
 | Lockout Threshold | 15 fails | 10 fails | 5 fails |
-| Server Capacity | +30% | Base | -30% |
+| Server Capacity | +30% | Base | −30% |
 | Password in Wordlist | Always | 60% chance | 40% chance |
 | IDS Intervention | Off | Active | Active |
 
+### Stealth Mode Effects
+
+| Attack | Normal | Stealth |
+|--------|--------|---------|
+| Port Scan | All ports, 80ms delay | Random 60% subset, 160ms delay |
+| Brute Force | Full wordlist | 8 attempts per username |
+| DDoS | Step 80–200 req/s | Step 30–80 req/s |
+| SQL Injection | 12 payloads, full rate | 6 payloads, rate × (6/12) |
+| File Access | Full enumeration | First half of paths only |
+
 ### Detection Rules
 
-| Attack Type | Rule Conditions |
-|-------------|----------------|
-| Port Scan | Port count > 15 OR open ports >= 3 |
+| Attack Type | Conditions |
+|-------------|-----------|
+| Port Scan | Port count > 15 OR open ports ≥ 3 |
 | Brute Force | Attempts > 5 OR lockout triggered |
 | DDoS Flood | Rate > 500 req/s OR rate > 350 AND duration > 3s |
 | SQL Injection | Pattern flag = 1 OR WAF bypassed OR attempts > 3 |
-| File Access | Restricted flag = 1 OR attempts > 5 with restricted flag |
+| File Access | Restricted access flag = 1 OR attempts > 5 with restricted flag |
 
 ### ML Feature Vector (9 features)
 
@@ -153,7 +209,7 @@ Select Difficulty → Select Target → Mission Loop
 | AttemptCount | Login or payload attempt count |
 | RequestRate | Requests per second |
 | PortCount | Total ports probed |
-| PatternFlag | SQL pattern matched (0/1) |
+| PatternFlag | Malicious SQL pattern matched (0/1) |
 | RestrictedAccess | Restricted path accessed (0/1) |
 | OpenPortsFound | Open ports discovered |
 | LockoutTriggered | Account lockout activated (0/1) |
@@ -182,7 +238,7 @@ RiskScore = 0.5 × RuleResult + 0.5 × MLProbability
 | Server taken offline | +200 |
 | Admin credentials obtained | +150 |
 | Database breached | +175 |
-| Detected by IDS | -25 |
+| Detected by IDS | −25 |
 
 ---
 
